@@ -19,7 +19,7 @@ namespace Microsoft::Console::Render
         // Used to release device resources so that another instance of
         // conhost can render to the screen (i.e. only one DirectX
         // application may control the screen at a time.)
-        [[nodiscard]] HRESULT Enable() noexcept override;
+        [[nodiscard]] HRESULT Enable() noexcept;
         [[nodiscard]] HRESULT Disable() noexcept;
 
         til::rect GetDisplaySize() noexcept;
@@ -28,10 +28,8 @@ namespace Microsoft::Console::Render
         [[nodiscard]] HRESULT Invalidate(const til::rect* const psrRegion) noexcept override;
         [[nodiscard]] HRESULT InvalidateCursor(const til::rect* const psrRegion) noexcept override;
         [[nodiscard]] HRESULT InvalidateSystem(const til::rect* const prcDirtyClient) noexcept override;
-        [[nodiscard]] HRESULT InvalidateSelection(const std::vector<til::rect>& rectangles) noexcept override;
         [[nodiscard]] HRESULT InvalidateScroll(const til::point* const pcoordDelta) noexcept override;
         [[nodiscard]] HRESULT InvalidateAll() noexcept override;
-        [[nodiscard]] HRESULT PrepareForTeardown(_Out_ bool* const pForcePaint) noexcept override;
 
         [[nodiscard]] HRESULT StartPaint() noexcept override;
         [[nodiscard]] HRESULT EndPaint() noexcept override;

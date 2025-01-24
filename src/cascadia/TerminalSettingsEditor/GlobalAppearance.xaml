@@ -9,6 +9,7 @@
       xmlns:local="using:Microsoft.Terminal.Settings.Editor"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
       xmlns:model="using:Microsoft.Terminal.Settings.Model"
+      xmlns:mtu="using:Microsoft.Terminal.UI"
       xmlns:muxc="using:Microsoft.UI.Xaml.Controls"
       mc:Ignorable="d">
 
@@ -26,19 +27,6 @@
     </Page.Resources>
 
     <StackPanel Style="{StaticResource SettingsStackStyle}">
-        <!--  Language  -->
-        <local:SettingContainer x:Uid="Globals_Language"
-                                Visibility="{x:Bind ViewModel.LanguageSelectorAvailable}">
-            <ComboBox ItemsSource="{x:Bind ViewModel.LanguageList}"
-                      SelectedItem="{x:Bind ViewModel.CurrentLanguage, Mode=TwoWay}">
-                <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="x:String">
-                        <TextBlock Text="{x:Bind local:GlobalAppearanceViewModel.LanguageDisplayConverter((x:String))}" />
-                    </DataTemplate>
-                </ComboBox.ItemTemplate>
-            </ComboBox>
-        </local:SettingContainer>
-
         <!--  Theme  -->
         <local:SettingContainer x:Uid="Globals_Theme">
             <ComboBox AutomationProperties.AccessibilityView="Content"
@@ -71,7 +59,7 @@
 
         <!--  Always show tabs  -->
         <local:SettingContainer x:Uid="Globals_AlwaysShowTabs">
-            <ToggleSwitch IsEnabled="{x:Bind local:Converters.InvertBoolean(ViewModel.ShowTabsInTitlebar), Mode=OneWay}"
+            <ToggleSwitch IsEnabled="{x:Bind mtu:Converters.InvertBoolean(ViewModel.ShowTabsInTitlebar), Mode=OneWay}"
                           IsOn="{x:Bind ViewModel.AlwaysShowTabs, Mode=TwoWay}"
                           Style="{StaticResource ToggleSwitchInExpanderStyle}" />
         </local:SettingContainer>
@@ -125,6 +113,18 @@
         <!--  Automatically hide window  -->
         <local:SettingContainer x:Uid="Globals_AutoHideWindow">
             <ToggleSwitch IsOn="{x:Bind ViewModel.AutoHideWindow, Mode=TwoWay}"
+                          Style="{StaticResource ToggleSwitchInExpanderStyle}" />
+        </local:SettingContainer>
+
+        <!--  Show Admin Shield  -->
+        <local:SettingContainer x:Uid="Globals_ShowAdminShield">
+            <ToggleSwitch IsOn="{x:Bind ViewModel.ShowAdminShield, Mode=TwoWay}"
+                          Style="{StaticResource ToggleSwitchInExpanderStyle}" />
+        </local:SettingContainer>
+
+        <!--  Enable Unfocused Acrylic  -->
+        <local:SettingContainer x:Uid="Globals_EnableUnfocusedAcrylic">
+            <ToggleSwitch IsOn="{x:Bind ViewModel.EnableUnfocusedAcrylic, Mode=TwoWay}"
                           Style="{StaticResource ToggleSwitchInExpanderStyle}" />
         </local:SettingContainer>
     </StackPanel>

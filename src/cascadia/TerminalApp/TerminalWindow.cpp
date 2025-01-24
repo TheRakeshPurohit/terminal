@@ -5,9 +5,9 @@
 #include "TerminalWindow.h"
 
 #include "AppLogic.h"
-#include "../inc/WindowingBehavior.h"
 
 #include <LibraryResources.h>
+#include <til/env.h>
 
 #include "TerminalWindow.g.cpp"
 #include "SettingsLoadEventArgs.g.cpp"
@@ -15,6 +15,7 @@
 
 using namespace winrt::Windows::ApplicationModel;
 using namespace winrt::Windows::ApplicationModel::DataTransfer;
+using namespace winrt::Windows::Graphics::Display;
 using namespace winrt::Windows::UI::Xaml;
 using namespace winrt::Windows::UI::Xaml::Controls;
 using namespace winrt::Windows::UI::Core;
@@ -168,9 +169,9 @@ namespace winrt::TerminalApp::implementation
                 }
                 _root->SetStartupActions(actions);
             }
-            else
+            else if (_appArgs)
             {
-                _root->SetStartupActions(_appArgs.GetStartupActions());
+                _root->SetStartupActions(_appArgs->ParsedArgs().GetStartupActions());
             }
         }
 
@@ -180,7 +181,7 @@ namespace winrt::TerminalApp::implementation
         // to register a handler to hear about the requests first and is all ready to receive
         // them before the COM server registers itself. Otherwise, the request might come
         // in and be routed to an event with no handlers or a non-ready Page.
-        if (_appArgs.IsHandoffListener())
+        if (_appArgs && _appArgs->ParsedArgs().IsHandoffListener())
         {
             _root->SetInboundListener(true);
         }
@@ -217,6 +218,8 @@ namespace winrt::TerminalApp::implementation
         _root->SetSettings(_settings, false); // We're on our UI thread right now, so this is safe
         _root->Loaded({ get_weak(), &TerminalWindow::_OnLoaded });
         _root->Initialized({ get_weak(), &TerminalWindow::_pageInitialized });
+        _root->WindowSizeChanged({ get_weak(), &TerminalWindow::_WindowSizeChanged });
+        _root->RenameWindowRequested({ get_weak(), &TerminalWindow::_RenameWindowRequested });
         _root->Create();
 
         AppLogic::Current()->SettingsChanged({ get_weak(), &TerminalWindow::UpdateSettingsHandler });
@@ -226,7 +229,7 @@ namespace winrt::TerminalApp::implementation
         auto args = winrt::make_self<SystemMenuChangeArgs>(RS_(L"SettingsMenuItem"),
                                                            SystemMenuChangeAction::Add,
                                                            SystemMenuItemHandler(this, &TerminalWindow::_OpenSettingsUI));
-        _SystemMenuChangeRequestedHandlers(*this, *args);
+        SystemMenuChangeRequested.raise(*this, *args);
 
         TraceLoggingWrite(
             g_hTerminalAppProvider,
@@ -263,11 +266,11 @@ namespace winrt::TerminalApp::implementation
         AppLogic::Current()->NotifyRootInitialized();
     }
 
-    void TerminalWindow::Quit()
+    void TerminalWindow::PersistState()
     {
         if (_root)
         {
-            _root->CloseWindow(true);
+            _root->PersistState();
         }
     }
 
@@ -562,9 +565,21 @@ namespace winrt::TerminalApp::implementation
     {
         winrt::Windows::Foundation::Size proposedSize{};
 
+        // In focus mode, we don't want to include our own tab row in the size
+        // of the window that we hand back. So we account for passing
+        // --focusMode on the commandline here, and the mode in the settings.
+        // Below, we'll also account for if focus mode was persisted into the
+        // session for restoration.
+        bool focusMode = _appArgs && _appArgs->ParsedArgs().GetLaunchMode().value_or(_settings.GlobalSettings().LaunchMode()) == LaunchMode::FocusMode;
+
         const auto scale = static_cast<float>(dpi) / static_cast<float>(USER_DEFAULT_SCREEN_DPI);
         if (const auto layout = LoadPersistedLayout())
         {
+            if (layout.LaunchMode())
+            {
+                focusMode = layout.LaunchMode().Value() == LaunchMode::FocusMode;
+            }
+
             if (layout.InitialSize())
             {
                 proposedSize = layout.InitialSize().Value();
@@ -575,13 +590,13 @@ namespace winrt::TerminalApp::implementation
             }
         }
 
-        if (_appArgs.GetSize().has_value() || (proposedSize.Width == 0 && proposedSize.Height == 0))
+        if ((_appArgs && _appArgs->ParsedArgs().GetSize().has_value()) || (proposedSize.Width == 0 && proposedSize.Height == 0))
         {
             // Use the default profile to determine how big of a window we need.
             const auto settings{ TerminalSettings::CreateWithNewTerminalArgs(_settings, nullptr, nullptr) };
 
             const til::size emptySize{};
-            const auto commandlineSize = _appArgs.GetSize().value_or(emptySize);
+            const auto commandlineSize = _appArgs ? _appArgs->ParsedArgs().GetSize().value_or(emptySize) : til::size{};
             proposedSize = TermControl::GetProposedDimensions(settings.DefaultSettings(),
                                                               dpi,
                                                               commandlineSize.width,
@@ -602,7 +617,7 @@ namespace winrt::TerminalApp::implementation
         // GH#2061 - If the global setting "Always show tab bar" is
         // set or if "Show tabs in title bar" is set, then we'll need to add
         // the height of the tab bar here.
-        if (_settings.GlobalSettings().ShowTabsInTitlebar())
+        if (_settings.GlobalSettings().ShowTabsInTitlebar() && !focusMode)
         {
             // In the past, we used to actually instantiate a TitlebarControl
             // and use Measure() to determine the DesiredSize of the control, to
@@ -620,7 +635,7 @@ namespace winrt::TerminalApp::implementation
             static constexpr auto titlebarHeight = 40;
             proposedSize.Height += (titlebarHeight)*scale;
         }
-        else if (_settings.GlobalSettings().AlwaysShowTabs())
+        else if (_settings.GlobalSettings().AlwaysShowTabs() && !focusMode)
         {
             // Same comment as above, but with a TabRowControl.
             //
@@ -654,7 +669,7 @@ namespace winrt::TerminalApp::implementation
         // GH#4620/#5801 - If the user passed --maximized or --fullscreen on the
         // commandline, then use that to override the value from the settings.
         const auto valueFromSettings = _settings.GlobalSettings().LaunchMode();
-        const auto valueFromCommandlineArgs = _appArgs.GetLaunchMode();
+        const auto valueFromCommandlineArgs = _appArgs ? _appArgs->ParsedArgs().GetLaunchMode() : std::nullopt;
         if (const auto layout = LoadPersistedLayout())
         {
             if (layout.LaunchMode())
@@ -690,9 +705,9 @@ namespace winrt::TerminalApp::implementation
         }
 
         // Commandline args trump everything except for content bounds (tear-out)
-        if (_appArgs.GetPosition().has_value())
+        if (_appArgs && _appArgs->ParsedArgs().GetPosition().has_value())
         {
-            initialPosition = _appArgs.GetPosition().value();
+            initialPosition = _appArgs->ParsedArgs().GetPosition().value();
         }
 
         if (_contentBounds)
@@ -701,11 +716,10 @@ namespace winrt::TerminalApp::implementation
             // that to determine the initial position of the window. This is
             // used when the user is dragging a tab out of the window, to create
             // a new window.
-            //
-            // contentBounds is in screen pixels, but that's okay! we want to
-            // return screen pixels out of here. Nailed it.
-            const til::rect bounds = { til::math::rounding, _contentBounds.Value() };
-            initialPosition = { bounds.left, bounds.top };
+            // BODY: Technically we aren't guaranteed to be within the XAML stack right now to have a "current view".
+            const auto scale = static_cast<float>(DisplayInformation::GetForCurrentView().RawPixelsPerViewPixel());
+            const auto bounds = _contentBounds.Value();
+            initialPosition = { lroundf(bounds.X * scale), lroundf(bounds.Y * scale) };
         }
         return {
             initialPosition.X ? initialPosition.X.Value() : defaultInitialX,
@@ -729,7 +743,7 @@ namespace winrt::TerminalApp::implementation
         return !_contentBounds &&
                !hadPersistedPosition &&
                _settings.GlobalSettings().CenterOnLaunch() &&
-               !_appArgs.GetPosition().has_value();
+               (_appArgs && !_appArgs->ParsedArgs().GetPosition().has_value());
     }
 
     // Method Description:
@@ -748,47 +762,41 @@ namespace winrt::TerminalApp::implementation
     void TerminalWindow::_RefreshThemeRoutine()
     {
         // Propagate the event to the host layer, so it can update its own UI
-        _RequestedThemeChangedHandlers(*this, Theme());
+        RequestedThemeChanged.raise(*this, Theme());
     }
 
     // This may be called on a background thread, or the main thread, but almost
     // definitely not on OUR UI thread.
-    winrt::fire_and_forget TerminalWindow::UpdateSettings(winrt::TerminalApp::SettingsLoadEventArgs args)
+    void TerminalWindow::UpdateSettings(winrt::TerminalApp::SettingsLoadEventArgs args)
     {
         _settings = args.NewSettings();
 
-        const auto weakThis{ get_weak() };
-        co_await wil::resume_foreground(_root->Dispatcher());
-        // Back on our UI thread...
-        if (auto logic{ weakThis.get() })
+        // Update the settings in TerminalPage
+        // We're on our UI thread right now, so this is safe
+        _root->SetSettings(_settings, true);
+
+        // Bubble the notification up to the AppHost, now that we've updated our _settings.
+        SettingsChanged.raise(*this, args);
+
+        if (FAILED(args.Result()))
         {
-            // Update the settings in TerminalPage
-            // We're on our UI thread right now, so this is safe
-            _root->SetSettings(_settings, true);
-
-            // Bubble the notification up to the AppHost, now that we've updated our _settings.
-            _SettingsChangedHandlers(*this, args);
-
-            if (FAILED(args.Result()))
-            {
-                const winrt::hstring titleKey = USES_RESOURCE(L"ReloadJsonParseErrorTitle");
-                const winrt::hstring textKey = USES_RESOURCE(L"ReloadJsonParseErrorText");
-                _ShowLoadErrorsDialog(titleKey,
-                                      textKey,
-                                      gsl::narrow_cast<HRESULT>(args.Result()),
-                                      args.ExceptionText());
-                co_return;
-            }
-            else if (args.Result() == S_FALSE)
-            {
-                _ShowLoadWarningsDialog(args.Warnings());
-            }
-            else if (args.Result() == S_OK)
-            {
-                DismissDialog();
-            }
-            _RefreshThemeRoutine();
+            const winrt::hstring titleKey = USES_RESOURCE(L"ReloadJsonParseErrorTitle");
+            const winrt::hstring textKey = USES_RESOURCE(L"ReloadJsonParseErrorText");
+            _ShowLoadErrorsDialog(titleKey,
+                                  textKey,
+                                  gsl::narrow_cast<HRESULT>(args.Result()),
+                                  args.ExceptionText());
+            return;
         }
+        else if (args.Result() == S_FALSE)
+        {
+            _ShowLoadWarningsDialog(args.Warnings());
+        }
+        else if (args.Result() == S_OK)
+        {
+            DismissDialog();
+        }
+        _RefreshThemeRoutine();
     }
 
     void TerminalWindow::_OpenSettingsUI()
@@ -863,7 +871,7 @@ namespace winrt::TerminalApp::implementation
             auto focusedObject{ Windows::UI::Xaml::Input::FocusManager::GetFocusedElement(xamlRoot) };
             do
             {
-                if (auto keyListener{ focusedObject.try_as<IDirectKeyListener>() })
+                if (auto keyListener{ focusedObject.try_as<UI::IDirectKeyListener>() })
                 {
                     if (keyListener.OnDirectKeyEvent(vkey, scanCode, down))
                     {
@@ -891,7 +899,7 @@ namespace winrt::TerminalApp::implementation
                         // don't want to go around the loop again.
                         if (!focusedObject)
                         {
-                            if (auto keyListener{ _root.try_as<IDirectKeyListener>() })
+                            if (auto keyListener{ _root.try_as<UI::IDirectKeyListener>() })
                             {
                                 return keyListener.OnDirectKeyEvent(vkey, scanCode, down);
                             }
@@ -916,32 +924,11 @@ namespace winrt::TerminalApp::implementation
     // - <none>
     // Return Value:
     // - <none>
-    void TerminalWindow::CloseWindow(LaunchPosition pos, const bool isLastWindow)
+    void TerminalWindow::CloseWindow()
     {
         if (_root)
         {
-            // If persisted layout is enabled and we are the last window closing
-            // we should save our state.
-            if (_settings.GlobalSettings().ShouldUsePersistedLayout() && isLastWindow)
-            {
-                if (const auto layout = _root->GetWindowLayout())
-                {
-                    layout.InitialPosition(pos);
-                    const auto state = ApplicationState::SharedInstance();
-                    state.PersistedWindowLayouts(winrt::single_threaded_vector<WindowLayout>({ layout }));
-                }
-            }
-
-            _root->CloseWindow(false);
-        }
-    }
-
-    void TerminalWindow::ClearPersistedWindowState()
-    {
-        if (_settings.GlobalSettings().ShouldUsePersistedLayout())
-        {
-            auto state = ApplicationState::SharedInstance();
-            state.PersistedWindowLayouts(nullptr);
+            _root->CloseWindow();
         }
     }
 
@@ -969,19 +956,6 @@ namespace winrt::TerminalApp::implementation
         {
             _root->WindowActivated(activated);
         }
-    }
-
-    // Method Description:
-    // - Returns true if we should exit the application before even starting the
-    //   window. We might want to do this if we're displaying an error message or
-    //   the version string, or if we want to open the settings file.
-    // Arguments:
-    // - <none>
-    // Return Value:
-    // - true iff we should exit the application before even starting the window
-    bool TerminalWindow::ShouldExitEarly()
-    {
-        return _appArgs.ShouldExitEarly();
     }
 
     bool TerminalWindow::FocusMode() const
@@ -1036,34 +1010,33 @@ namespace winrt::TerminalApp::implementation
     // Return Value:
     // - the result of the first command who's parsing returned a non-zero code,
     //   or 0. (see TerminalWindow::_ParseArgs)
-    int32_t TerminalWindow::SetStartupCommandline(array_view<const winrt::hstring> args,
-                                                  winrt::hstring cwd,
-                                                  winrt::hstring env)
+    int32_t TerminalWindow::SetStartupCommandline(TerminalApp::CommandlineArgs args)
     {
-        _WindowProperties->SetInitialCwd(std::move(cwd));
-        _WindowProperties->VirtualEnvVars(std::move(env));
+        _appArgs = winrt::get_self<CommandlineArgs>(args);
+        auto& parsedArgs = _appArgs->ParsedArgs();
+
+        _WindowProperties->SetInitialCwd(_appArgs->CurrentDirectory());
+        _WindowProperties->VirtualEnvVars(_appArgs->CurrentEnvironment());
 
         // This is called in AppHost::ctor(), before we've created the window
         // (or called TerminalWindow::Initialize)
-        const auto result = _appArgs.ParseArgs(args);
-        if (result == 0)
+        if (_appArgs->ExitCode() == 0)
         {
             // If the size of the arguments list is 1,
             // then it contains only the executable name and no other arguments.
-            _hasCommandLineArguments = args.size() > 1;
-            _appArgs.ValidateStartupCommands();
+            _hasCommandLineArguments = _appArgs->CommandlineRef().size() > 1;
 
             // DON'T pass the args into the page yet. It doesn't exist yet.
             // Instead, we'll handle that in Initialize, when we first instantiate the page.
         }
 
         // If we have a -s param passed to us to load a saved layout, cache that now.
-        if (const auto idx = _appArgs.GetPersistedLayoutIdx())
+        if (const auto idx = parsedArgs.GetPersistedLayoutIdx())
         {
             SetPersistedLayoutIdx(idx.value());
         }
 
-        return result;
+        return _appArgs->ExitCode();
     }
 
     void TerminalWindow::SetStartupContent(const winrt::hstring& content,
@@ -1095,56 +1068,24 @@ namespace winrt::TerminalApp::implementation
     // Return Value:
     // - the result of the first command who's parsing returned a non-zero code,
     //   or 0. (see TerminalWindow::_ParseArgs)
-    int32_t TerminalWindow::ExecuteCommandline(array_view<const winrt::hstring> args,
-                                               const winrt::hstring& cwd,
-                                               const winrt::hstring& env)
+    int32_t TerminalWindow::ExecuteCommandline(TerminalApp::CommandlineArgs args)
     {
-        ::TerminalApp::AppCommandlineArgs appArgs;
-        auto result = appArgs.ParseArgs(args);
-        if (result == 0)
+        _appArgs = winrt::get_self<CommandlineArgs>(args);
+
+        if (_appArgs->ExitCode() == 0)
         {
-            auto actions = winrt::single_threaded_vector<ActionAndArgs>(std::move(appArgs.GetStartupActions()));
+            auto& parsedArgs = _appArgs->ParsedArgs();
+            auto actions = winrt::single_threaded_vector<ActionAndArgs>(std::move(parsedArgs.GetStartupActions()));
 
-            _root->ProcessStartupActions(actions, false, cwd, env);
+            _root->ProcessStartupActions(actions, false, _appArgs->CurrentDirectory(), _appArgs->CurrentEnvironment());
 
-            if (appArgs.IsHandoffListener())
+            if (parsedArgs.IsHandoffListener())
             {
                 _root->SetInboundListener(true);
             }
         }
         // Return the result of parsing with commandline, though it may or may not be used.
-        return result;
-    }
-
-    // Method Description:
-    // - If there were any errors parsing the commandline that was used to
-    //   initialize the terminal, this will return a string containing that
-    //   message. If there were no errors, this message will be blank.
-    // - If the user requested help on any command (using --help), this will
-    //   contain the help message.
-    // - If the user requested the version number (using --version), this will
-    //   contain the version string.
-    // Arguments:
-    // - <none>
-    // Return Value:
-    // - the help text or error message for the provided commandline, if one
-    //   exists, otherwise the empty string.
-    winrt::hstring TerminalWindow::ParseCommandlineMessage()
-    {
-        return winrt::to_hstring(_appArgs.GetExitMessage());
-    }
-
-    hstring TerminalWindow::GetWindowLayoutJson(LaunchPosition position)
-    {
-        if (_root != nullptr)
-        {
-            if (const auto layout = _root->GetWindowLayout())
-            {
-                layout.InitialPosition(position);
-                return WindowLayout::ToJson(layout);
-            }
-        }
-        return L"";
+        return _appArgs->ExitCode();
     }
 
     void TerminalWindow::SetPersistedLayoutIdx(const uint32_t idx)
@@ -1216,14 +1157,6 @@ namespace winrt::TerminalApp::implementation
         }
     }
 
-    void TerminalWindow::RenameFailed()
-    {
-        if (_root)
-        {
-            _root->RenameFailed();
-        }
-    }
-
     void TerminalWindow::WindowName(const winrt::hstring& name)
     {
         const auto oldIsQuakeMode = _WindowProperties->IsQuakeWindow();
@@ -1239,7 +1172,7 @@ namespace winrt::TerminalApp::implementation
             // If we're entering Quake Mode from Focus Mode, then this will do nothing
             // If we're leaving Quake Mode (we're already in Focus Mode), then this will do nothing
             _root->SetFocusMode(true);
-            _IsQuakeWindowChangedHandlers(*this, nullptr);
+            IsQuakeWindowChanged.raise(*this, nullptr);
         }
     }
     void TerminalWindow::WindowId(const uint64_t& id)
@@ -1272,7 +1205,7 @@ namespace winrt::TerminalApp::implementation
                 // Create the equivalent NewTab action.
                 const auto newAction = Settings::Model::ActionAndArgs{ Settings::Model::ShortcutAction::NewTab,
                                                                        Settings::Model::NewTabArgs(firstAction.Args() ?
-                                                                                                       firstAction.Args().try_as<Settings::Model::SplitPaneArgs>().TerminalArgs() :
+                                                                                                       firstAction.Args().try_as<Settings::Model::SplitPaneArgs>().ContentArgs() :
                                                                                                        nullptr) };
                 args.SetAt(0, newAction);
             }
@@ -1344,6 +1277,46 @@ namespace winrt::TerminalApp::implementation
         }
     }
 
+    void TerminalWindow::_WindowSizeChanged(const IInspectable&, winrt::Microsoft::Terminal::Control::WindowSizeChangedEventArgs args)
+    {
+        winrt::Windows::Foundation::Size pixelSize = { static_cast<float>(args.Width()), static_cast<float>(args.Height()) };
+        const auto scale = static_cast<float>(DisplayInformation::GetForCurrentView().RawPixelsPerViewPixel());
+
+        if (!FocusMode())
+        {
+            if (!_settings.GlobalSettings().AlwaysShowTabs())
+            {
+                // Hide the title bar = off, Always show tabs = off.
+                static constexpr auto titlebarHeight = 10;
+                pixelSize.Height += (titlebarHeight)*scale;
+            }
+            else if (!_settings.GlobalSettings().ShowTabsInTitlebar())
+            {
+                // Hide the title bar = off, Always show tabs = on.
+                static constexpr auto titlebarAndTabBarHeight = 40;
+                pixelSize.Height += (titlebarAndTabBarHeight)*scale;
+            }
+            // Hide the title bar = on, Always show tabs = on.
+            // In this case, we don't add any height because
+            // NonClientIslandWindow::GetTotalNonClientExclusiveSize() gets
+            // called in AppHost::_resizeWindow and it already takes title bar
+            // height into account.  In other cases above
+            // IslandWindow::GetTotalNonClientExclusiveSize() is called, and it
+            // doesn't take the title bar height into account, so we have to do
+            // the calculation manually.
+        }
+
+        args.Width(static_cast<int32_t>(pixelSize.Width));
+        args.Height(static_cast<int32_t>(pixelSize.Height));
+
+        WindowSizeChanged.raise(*this, args);
+    }
+
+    void TerminalWindow::_RenameWindowRequested(const IInspectable&, const winrt::TerminalApp::RenameWindowRequestedArgs args)
+    {
+        WindowName(args.ProposedName());
+    }
+
     winrt::hstring WindowProperties::WindowName() const noexcept
     {
         return _WindowName;
@@ -1359,8 +1332,8 @@ namespace winrt::TerminalApp::implementation
             // PropertyChangedEventArgs will throw.
             try
             {
-                _PropertyChangedHandlers(*this, Windows::UI::Xaml::Data::PropertyChangedEventArgs{ L"WindowName" });
-                _PropertyChangedHandlers(*this, Windows::UI::Xaml::Data::PropertyChangedEventArgs{ L"WindowNameForDisplay" });
+                PropertyChanged.raise(*this, Windows::UI::Xaml::Data::PropertyChangedEventArgs{ L"WindowName" });
+                PropertyChanged.raise(*this, Windows::UI::Xaml::Data::PropertyChangedEventArgs{ L"WindowNameForDisplay" });
             }
             CATCH_LOG();
         }
@@ -1384,7 +1357,7 @@ namespace winrt::TerminalApp::implementation
     // - a string for displaying the name of the window.
     winrt::hstring WindowProperties::WindowIdForDisplay() const noexcept
     {
-        return winrt::hstring{ fmt::format(L"{}: {}",
+        return winrt::hstring{ fmt::format(FMT_COMPILE(L"{}: {}"),
                                            std::wstring_view(RS_(L"WindowIdLabel")),
                                            _WindowId) };
     }
@@ -1398,13 +1371,13 @@ namespace winrt::TerminalApp::implementation
     winrt::hstring WindowProperties::WindowNameForDisplay() const noexcept
     {
         return _WindowName.empty() ?
-                   winrt::hstring{ fmt::format(L"<{}>", RS_(L"UnnamedWindowName")) } :
+                   winrt::hstring{ fmt::format(FMT_COMPILE(L"<{}>"), RS_(L"UnnamedWindowName")) } :
                    _WindowName;
     }
 
     bool WindowProperties::IsQuakeWindow() const noexcept
     {
-        return _WindowName == QuakeWindowName;
+        return _WindowName == L"_quake";
     }
 
 };

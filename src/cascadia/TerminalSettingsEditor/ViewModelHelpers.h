@@ -37,22 +37,25 @@ protected:
     winrt::event<::winrt::Windows::UI::Xaml::Data::PropertyChangedEventHandler> _propertyChangedHandlers;
 };
 
+#define GETSET_OBSERVABLE_PROJECTED_SETTING(target, name) \
+public:                                                   \
+    auto name() const                                     \
+    {                                                     \
+        return target.name();                             \
+    };                                                    \
+    template<typename T>                                  \
+    void name(const T& value)                             \
+    {                                                     \
+        if (target.name() != value)                       \
+        {                                                 \
+            target.name(value);                           \
+            _NotifyChanges(L"Has" #name, L## #name);      \
+        }                                                 \
+    }
+
 #define _BASE_OBSERVABLE_PROJECTED_SETTING(target, name) \
-public:                                                  \
-    auto name() const noexcept                           \
-    {                                                    \
-        return target.name();                            \
-    };                                                   \
-    template<typename T>                                 \
-    void name(const T& value)                            \
-    {                                                    \
-        if (name() != value)                             \
-        {                                                \
-            target.name(value);                          \
-            _NotifyChanges(L"Has" #name, L## #name);     \
-        }                                                \
-    }                                                    \
-    bool Has##name()                                     \
+    GETSET_OBSERVABLE_PROJECTED_SETTING(target, name)    \
+    bool Has##name() const                               \
     {                                                    \
         return target.Has##name();                       \
     }
@@ -63,14 +66,15 @@ public:                                                  \
     _BASE_OBSERVABLE_PROJECTED_SETTING(target, name) \
     void Clear##name()                               \
     {                                                \
-        const auto hadValue{ target.Has##name() };   \
-        target.Clear##name();                        \
+        const auto t = target;                       \
+        const auto hadValue{ t.Has##name() };        \
+        t.Clear##name();                             \
         if (hadValue)                                \
         {                                            \
             _NotifyChanges(L"Has" #name, L## #name); \
         }                                            \
     }                                                \
-    auto name##OverrideSource()                      \
+    auto name##OverrideSource() const                \
     {                                                \
         return target.name##OverrideSource();        \
     }

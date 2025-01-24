@@ -1288,12 +1288,6 @@ namespace TerminalAppLocalTests
         END_TEST_METHOD_PROPERTIES()
 
         auto page = _commonSetup();
-        page->RenameWindowRequested([&page](auto&&, auto&&) {
-            // In the real terminal, this would bounce up to the monarch and
-            // come back down. Instead, immediately call back to tell the terminal it failed.
-            page->RenameFailed();
-        });
-
         auto windowNameChanged = false;
 
         page->PropertyChanged([&page, &windowNameChanged](auto&&, const winrt::WUX::Data::PropertyChangedEventArgs& args) mutable {
@@ -1326,7 +1320,7 @@ namespace TerminalAppLocalTests
             const auto& controlSettings = activeControl.Settings();
             VERIFY_IS_NOT_NULL(controlSettings);
 
-            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1344,7 +1338,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed to the preview");
-            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, til::color{ controlSettings.DefaultBackground() });
 
             // And we should have stored a function to revert the change.
             VERIFY_ARE_EQUAL(1u, page->_restorePreviewFuncs.size());
@@ -1366,7 +1360,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed");
-            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, til::color{ controlSettings.DefaultBackground() });
 
             // After preview there should be no more restore functions to execute.
             VERIFY_ARE_EQUAL(0u, page->_restorePreviewFuncs.size());
@@ -1394,7 +1388,7 @@ namespace TerminalAppLocalTests
             const auto& controlSettings = activeControl.Settings();
             VERIFY_IS_NOT_NULL(controlSettings);
 
-            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1412,7 +1406,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed to the preview");
-            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1428,7 +1422,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be the same as it originally was");
-            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, til::color{ controlSettings.DefaultBackground() });
         });
         Log::Comment(L"Sleep to let events propagate");
         Sleep(250);
@@ -1450,7 +1444,7 @@ namespace TerminalAppLocalTests
             const auto& controlSettings = activeControl.Settings();
             VERIFY_IS_NOT_NULL(controlSettings);
 
-            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff0c0c0c }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1467,7 +1461,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed to the preview");
-            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xff000000 }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1484,7 +1478,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed to the preview");
-            VERIFY_ARE_EQUAL(til::color{ 0xffFAFAFA }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xffFAFAFA }, til::color{ controlSettings.DefaultBackground() });
         });
 
         TestOnUIThread([&page]() {
@@ -1503,7 +1497,7 @@ namespace TerminalAppLocalTests
             VERIFY_IS_NOT_NULL(controlSettings);
 
             Log::Comment(L"Color should be changed");
-            VERIFY_ARE_EQUAL(til::color{ 0xffFAFAFA }, controlSettings.DefaultBackground());
+            VERIFY_ARE_EQUAL(til::color{ 0xffFAFAFA }, til::color{ controlSettings.DefaultBackground() });
         });
         Log::Comment(L"Sleep to let events propagate");
         Sleep(250);
