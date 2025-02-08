@@ -17,11 +17,8 @@ Author(s):
     Mike Griese (migrie) April-2019
 --*/
 
-#include "pch.h"
+#pragma once
 #include "IslandWindow.h"
-#include "../../types/inc/Viewport.hpp"
-#include <dwmapi.h>
-#include <wil/resource.h>
 
 class NonClientIslandWindow : public IslandWindow
 {
@@ -30,8 +27,7 @@ public:
     static constexpr const int topBorderVisibleHeight = 1;
 
     NonClientIslandWindow(const winrt::Windows::UI::Xaml::ElementTheme& requestedTheme) noexcept;
-
-    void Refrigerate() noexcept override;
+    ~NonClientIslandWindow() override;
 
     virtual void Close() override;
     void MakeWindow() noexcept override;
@@ -42,7 +38,7 @@ public:
     virtual til::rect GetNonClientFrame(UINT dpi) const noexcept override;
     virtual til::size GetTotalNonClientExclusiveSize(UINT dpi) const noexcept override;
 
-    bool Initialize() override;
+    void Initialize() override;
 
     void OnAppInitialized() override;
     void SetContent(winrt::Windows::UI::Xaml::UIElement content) override;
@@ -50,6 +46,7 @@ public:
     void OnApplicationThemeChanged(const winrt::Windows::UI::Xaml::ElementTheme& requestedTheme) override;
 
     void SetTitlebarBackground(winrt::Windows::UI::Xaml::Media::Brush brush);
+    void SetShowTabsFullscreen(const bool newShowTabsFullscreen) override;
 
     virtual void UseMica(const bool newValue, const double titlebarOpacity) override;
 
@@ -57,7 +54,6 @@ private:
     std::optional<til::point> _oldIslandPos;
 
     winrt::TerminalApp::TitlebarControl _titlebar{ nullptr };
-    winrt::Windows::UI::Xaml::UIElement _clientContent{ nullptr };
 
     wil::unique_hbrush _backgroundBrush;
     til::color _backgroundBrushColor;
@@ -97,6 +93,7 @@ private:
     void _UpdateFrameMargins() const noexcept;
     void _UpdateMaximizedState();
     void _UpdateIslandPosition(const UINT windowWidth, const UINT windowHeight);
+    void _UpdateTitlebarVisibility();
 
     struct Revokers
     {

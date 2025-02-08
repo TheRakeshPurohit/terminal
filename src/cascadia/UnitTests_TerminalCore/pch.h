@@ -48,7 +48,7 @@ Author(s):
 #endif
 
 #include <wil/cppwinrt.h>
-#include <unknwn.h>
+#include <Unknwn.h>
 #include <hstring.h>
 
 #include <WexTestClass.h>
@@ -58,6 +58,7 @@ Author(s):
 #include <winrt/Windows.system.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.UI.Xaml.Data.h>
 
 #include <winrt/Microsoft.Terminal.Core.h>
 

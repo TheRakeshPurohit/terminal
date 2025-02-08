@@ -18,7 +18,7 @@
 #include <LibraryIncludes.h>
 
 // Must be included before any WinRT headers.
-#include <unknwn.h>
+#include <Unknwn.h>
 #include <winrt/Windows.Foundation.h>
 #include <wil/cppwinrt.h>
 
@@ -37,5 +37,6 @@ TRACELOGGING_DECLARE_PROVIDER(g_hTerminalConnectionProvider);
 #include <telemetry/ProjectTelemetry.h>
 
 #include "til.h"
+#include <til/winrt.h>
 
 #include <cppwinrt_utils.h>
